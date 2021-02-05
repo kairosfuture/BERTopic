@@ -764,9 +764,11 @@ class BERTopic:
         # check if (doc # < 100.000) and (cluster # < 255) for feasible running time
         doc_number = len(documents.Document.values)
         topic_number = len(set(self.cluster_model.labels_))
+        logger.info(f"Number of topics detected: {topic_number}")
         self.calculate_probabilities = doc_number < 100000 and topic_number < 255
 
         if self.calculate_probabilities:
+            logger.info("Calculating doc-topic probabilities")
             probabilities = hdbscan.all_points_membership_vectors(self.cluster_model)
         else:
             logger.info('Skipped topic probability distributions, since requires too much time for '
