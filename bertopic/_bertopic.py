@@ -160,6 +160,10 @@ class BERTopic:
         self.nr_topics = nr_topics
         self.min_topic_size = min_topic_size
         self.calculate_probabilities = True
+        if type(cluster_selection_epsilon) is int:
+            cluster_selection_epsilon = float(cluster_selection_epsilon)
+        if type(cluster_selection_epsilon) is not float or cluster_selection_epsilon < 0.0:
+            raise ValueError('Epsilon must be a float value greater than or equal to 0!')
         self.cluster_selection_epsilon = cluster_selection_epsilon
         self.doc_number_limit4probs = doc_number_limit4probs
         self.topic_number_limit4probs = topic_number_limit4probs
