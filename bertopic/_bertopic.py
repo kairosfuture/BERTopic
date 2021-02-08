@@ -797,7 +797,10 @@ class BERTopic:
         Returns:
             c_tf_idf: The resulting matrix giving a value (importance score) for each word per topic
         """
-        documents_per_topic = documents.groupby(['Topic'], as_index=False).agg({'Document': ' '.join})
+        # documents_per_topic = documents.groupby(['Topic'], as_index=False).agg({'Document': ' '.join})
+        documents_per_topic = documents.groupby(['Topic'], as_index=False).agg(
+            {'Document': lambda topic: [token for doc in topic for token in doc]})
+
         self.c_tf_idf, words = self._c_tf_idf(documents_per_topic, m=len(documents))
         self._extract_words_per_topic(words)
         self._create_topic_vectors()
@@ -849,7 +852,8 @@ class BERTopic:
             tf_idf: The resulting matrix giving a value (importance score) for each word per topic
             words: The names of the words to which values were given
         """
-        documents = self._preprocess_text(documents_per_topic.Document.values)
+        # documents = self._preprocess_text(documents_per_topic.Document.values)
+        documents = documents_per_topic.Document.values
         count = self.vectorizer.fit(documents)
         words = count.get_feature_names()
         X = count.transform(documents)
