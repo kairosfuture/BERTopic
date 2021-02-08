@@ -171,7 +171,9 @@ class BERTopic:
         # Vectorizer parameters
         self.stop_words = stop_words
         self.n_gram_range = n_gram_range
-        self.vectorizer = vectorizer or CountVectorizer(ngram_range=self.n_gram_range, stop_words=self.stop_words)
+        self.vectorizer = vectorizer or CountVectorizer(tokenizer=lambda x: x, preprocessor=lambda x: x,
+                                                        token_pattern=None, ngram_range=self.n_gram_range,
+                                                        stop_words=self.stop_words)
 
         self.umap_model = None
         self.cluster_model = None
