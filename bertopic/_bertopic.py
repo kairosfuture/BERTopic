@@ -160,10 +160,6 @@ class BERTopic:
         self.nr_topics = nr_topics
         self.min_topic_size = min_topic_size
         self.calculate_probabilities = True
-        if type(cluster_selection_epsilon) is int:
-            cluster_selection_epsilon = float(cluster_selection_epsilon)
-        if type(cluster_selection_epsilon) is not float or cluster_selection_epsilon < 0.0:
-            raise ValueError('Epsilon must be a float value greater than or equal to 0!')
         self.cluster_selection_epsilon = cluster_selection_epsilon
         self.doc_number_limit4probs = doc_number_limit4probs
         self.topic_number_limit4probs = topic_number_limit4probs
@@ -803,7 +799,6 @@ class BERTopic:
         Returns:
             c_tf_idf: The resulting matrix giving a value (importance score) for each word per topic
         """
-        # documents_per_topic = documents.groupby(['Topic'], as_index=False).agg({'Document': ' '.join})
         documents_per_topic = documents.groupby(['Topic'], as_index=False).agg(
             {'Document': lambda topic: [token for doc in topic for token in doc]})
 
