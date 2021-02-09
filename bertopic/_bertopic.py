@@ -33,7 +33,7 @@ except ModuleNotFoundError as e:
 logger = MyLogger("WARNING")
 
 
-def identify(x):
+def identity(x):
     return x
 
 
@@ -175,7 +175,7 @@ class BERTopic:
         # Vectorizer parameters
         self.stop_words = stop_words
         self.n_gram_range = n_gram_range
-        self.vectorizer = vectorizer or CountVectorizer(tokenizer=identify, preprocessor=identify,
+        self.vectorizer = vectorizer or CountVectorizer(tokenizer=identity, preprocessor=identity,
                                                         token_pattern=None, ngram_range=self.n_gram_range,
                                                         stop_words=self.stop_words)
 
