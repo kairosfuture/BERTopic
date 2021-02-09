@@ -33,6 +33,10 @@ except ModuleNotFoundError as e:
 logger = MyLogger("WARNING")
 
 
+def identity(x):
+    return x
+
+
 class BERTopic:
     """BERTopic is a topic modeling technique that leverages BERT embeddings and
     c-TF-IDF to create dense clusters allowing for easily interpretable topics
@@ -171,7 +175,9 @@ class BERTopic:
         # Vectorizer parameters
         self.stop_words = stop_words
         self.n_gram_range = n_gram_range
-        self.vectorizer = vectorizer or CountVectorizer(ngram_range=self.n_gram_range, stop_words=self.stop_words)
+        self.vectorizer = vectorizer or CountVectorizer(tokenizer=identity, preprocessor=identity,
+                                                        token_pattern=None, ngram_range=self.n_gram_range,
+                                                        stop_words=self.stop_words)
 
         self.umap_model = None
         self.cluster_model = None
@@ -797,7 +803,9 @@ class BERTopic:
         Returns:
             c_tf_idf: The resulting matrix giving a value (importance score) for each word per topic
         """
-        documents_per_topic = documents.groupby(['Topic'], as_index=False).agg({'Document': ' '.join})
+        documents_per_topic = documents.groupby(['Topic'], as_index=False).agg(
+            {'Document': lambda topic_docs: [token for doc in topic_docs for token in doc]})
+
         self.c_tf_idf, words = self._c_tf_idf(documents_per_topic, m=len(documents))
         self._extract_words_per_topic(words)
         self._create_topic_vectors()
@@ -849,7 +857,8 @@ class BERTopic:
             tf_idf: The resulting matrix giving a value (importance score) for each word per topic
             words: The names of the words to which values were given
         """
-        documents = self._preprocess_text(documents_per_topic.Document.values)
+        # documents = self._preprocess_text(documents_per_topic.Document.values)
+        documents = documents_per_topic.Document.values
         count = self.vectorizer.fit(documents)
         words = count.get_feature_names()
         X = count.transform(documents)
