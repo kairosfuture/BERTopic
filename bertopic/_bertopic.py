@@ -33,6 +33,10 @@ except ModuleNotFoundError as e:
 logger = MyLogger("WARNING")
 
 
+def identify(x):
+    return x
+
+
 class BERTopic:
     """BERTopic is a topic modeling technique that leverages BERT embeddings and
     c-TF-IDF to create dense clusters allowing for easily interpretable topics
@@ -171,7 +175,7 @@ class BERTopic:
         # Vectorizer parameters
         self.stop_words = stop_words
         self.n_gram_range = n_gram_range
-        self.vectorizer = vectorizer or CountVectorizer(tokenizer=lambda x: x, preprocessor=lambda x: x,
+        self.vectorizer = vectorizer or CountVectorizer(tokenizer=identify, preprocessor=identify,
                                                         token_pattern=None, ngram_range=self.n_gram_range,
                                                         stop_words=self.stop_words)
 
