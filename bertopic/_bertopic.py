@@ -800,7 +800,7 @@ class BERTopic:
             c_tf_idf: The resulting matrix giving a value (importance score) for each word per topic
         """
         documents_per_topic = documents.groupby(['Topic'], as_index=False).agg(
-            {'Document': lambda topic: [token for doc in topic for token in doc]})
+            {'Document': lambda topic_docs: [token for doc in topic_docs for token in doc]})
 
         self.c_tf_idf, words = self._c_tf_idf(documents_per_topic, m=len(documents))
         self._extract_words_per_topic(words)
