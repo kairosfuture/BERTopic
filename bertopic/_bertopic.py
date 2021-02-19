@@ -361,6 +361,8 @@ class BERTopic:
 
         if self.calculate_probabilities:
             probabilities = hdbscan.membership_vector(self.cluster_model, umap_embeddings)
+            # Append outlier probabilities
+            probabilities = self._append_outlier(probabilities)
             if len(documents) == 1:
                 probabilities = probabilities.flatten()
         else:
@@ -786,6 +788,8 @@ class BERTopic:
         if self.calculate_probabilities:
             logger.info("Calculating doc-topic probabilities")
             probabilities = hdbscan.all_points_membership_vectors(self.cluster_model)
+            # Append outlier probabilities
+            probabilities = self._append_outlier(probabilities)
         else:
             logger.info(f"Skipped doc-topic probability distributions, since requires too much time for "
                         f"{doc_number} documents and {topic_number} topics.")
@@ -1150,3 +1154,17 @@ class BERTopic:
             cleaned_documents = [re.sub(r'[^A-Za-z0-9 ]+', '', doc) for doc in cleaned_documents]
         cleaned_documents = [doc if doc != "" else "emptydoc" for doc in cleaned_documents]
         return cleaned_documents
+
+    @staticmethod
+    def _append_outlier(doc_topic_distribution):
+        """
+        Adding outlier(-1) class probability to each document-topic probability distribution array.
+        It can be reached with using index -1, since we are using append.
+
+        Args:
+            doc_topic_distribution: (document number, topic number) shaped numpy array
+
+        Returns:
+            (topic number, topic number +1) shaped numpy array
+        """
+        return np.array([np.append(probs, 1 - sum(probs)) for probs in doc_topic_distribution])
