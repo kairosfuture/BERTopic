@@ -1156,15 +1156,15 @@ class BERTopic:
         return cleaned_documents
 
     @staticmethod
-    def _append_outlier(doc_topic_distribution):
+    def _append_outlier(probabilities):
         """
         Adding outlier(-1) class probability to each document-topic probability distribution array.
         It can be reached with using index -1, since we are using append.
 
         Args:
-            doc_topic_distribution: (document number, topic number) shaped numpy array
+            probabilities: (document number, topic number) shaped numpy array
 
         Returns:
-            (topic number, topic number +1) shaped numpy array
+            (document number, topic number +1) shaped numpy array
         """
-        return np.array([np.append(probs, 1 - sum(probs)) for probs in doc_topic_distribution])
+        return np.array([np.append(doc_probs, 1 - sum(doc_probs)) for doc_probs in probabilities])
