@@ -1032,16 +1032,19 @@ class BERTopic:
         similarities = cosine_similarity(self.c_tf_idf)
         np.fill_diagonal(similarities, 0)
 
+        # HDBSCAN needs this topic index regulator as 1, because it finds outlier(-1) topic too
+        tir = 1 if self.clustering_method == 'hdbscan' else 0  # topic_index_regulator
         while len(self.get_topic_freq()) > self.nr_topics + 1:
             # Find most similar topic to least common topic
             topic_to_merge = self.get_topic_freq().iloc[-1].Topic
-            # HDBSCAN needs this index regulator, because it finds outlier(-1) topic too
-            topic_index_regulator = 1 if self.clustering_method == 'hdbscan' else 0
-            topic_to_merge_into = \
-                np.argmax(
-                    similarities[topic_to_merge + topic_index_regulator]
-                ) - topic_index_regulator
-            similarities[:, topic_to_merge + topic_index_regulator] = -1
+            if topic_to_merge == -1:
+                topic_to_merge = self.get_topic_freq().iloc[-2].Topic
+
+            topic_to_merge_into = np.argmax(similarities[topic_to_merge + tir]) - tir
+            if topic_to_merge_into == -1:
+                # merge into second similar topic if the most similar is outlier(-1)
+                topic_to_merge_into = np.argsort(similarities[topic_to_merge + tir])[-2] - tir
+            similarities[:, topic_to_merge + tir] = -1
 
             # Update Topic labels
             documents.loc[documents.Topic == topic_to_merge, "Topic"] = topic_to_merge_into
