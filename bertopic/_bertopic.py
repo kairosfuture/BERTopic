@@ -1035,8 +1035,13 @@ class BERTopic:
         while len(self.get_topic_freq()) > self.nr_topics + 1:
             # Find most similar topic to least common topic
             topic_to_merge = self.get_topic_freq().iloc[-1].Topic
-            topic_to_merge_into = np.argmax(similarities[topic_to_merge + 1]) - 1
-            similarities[:, topic_to_merge + 1] = -1
+            # HDBSCAN needs this index regulator, because it finds outlier(-1) topic too
+            topic_index_regulator = 1 if self.clustering_method == 'hdbscan' else 0
+            topic_to_merge_into = \
+                np.argmax(
+                    similarities[topic_to_merge + topic_index_regulator]
+                ) - topic_index_regulator
+            similarities[:, topic_to_merge + topic_index_regulator] = -1
 
             # Update Topic labels
             documents.loc[documents.Topic == topic_to_merge, "Topic"] = topic_to_merge_into
@@ -1049,10 +1054,12 @@ class BERTopic:
 
         if initial_nr_topics <= self.nr_topics:
             logger.info(
-                f"Since {initial_nr_topics} were found, they could not be reduced to {self.nr_topics}")
+                f"Since {initial_nr_topics} were found, "
+                f"they could not be reduced to {self.nr_topics}")
         else:
             logger.info(
-                f"Reduced number of topics from {initial_nr_topics} to {len(self.get_topic_freq())}")
+                f"Reduced number of topics from {initial_nr_topics} "
+                f"to {len(self.get_topic_freq())}")
 
         return documents
 
@@ -1078,17 +1085,22 @@ class BERTopic:
         not_mapped = int(np.ceil(len(self.get_topic_freq()) * 0.1))
         to_map = self.get_topic_freq().Topic.values[not_mapped:][::-1]
 
+        # HDBSCAN needs this index regulator, because it finds outlier(-1) topic too
+        topic_index_regulator = 1 if self.clustering_method == 'hdbscan' else 0
         for topic_to_merge in to_map:
             # Find most similar topic to least common topic
-            similarity = np.max(similarities[topic_to_merge + 1])
-            topic_to_merge_into = np.argmax(similarities[topic_to_merge + 1]) - 1
+            similarity = np.max(similarities[topic_to_merge + topic_index_regulator])
+            topic_to_merge_into = \
+                np.argmax(
+                    similarities[topic_to_merge + topic_index_regulator]
+                ) - topic_index_regulator
 
             # Only map topics if they have a high similarity
             if (similarity > 0.915) & (topic_to_merge_into not in has_mapped):
                 # Update Topic labels
                 documents.loc[documents.Topic == topic_to_merge, "Topic"] = topic_to_merge_into
                 self.mapped_topics[topic_to_merge] = topic_to_merge_into
-                similarities[:, topic_to_merge + 1] = -1
+                similarities[:, topic_to_merge + topic_index_regulator] = -1
 
                 # Update new topic content
                 self._update_topic_size(documents)
