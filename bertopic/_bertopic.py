@@ -201,7 +201,7 @@ class BERTopic:
             logger.set_level("DEBUG")
 
         if self.clustering_method == 'gm' and not isinstance(self.nr_topics, int):
-            raise Exception('You need to specify nr_topics with using gm as the clustering method.')
+            raise ValueError('You need to specify nr_topics when using gm as the clustering method.')
 
         if self.clustering_method not in ('hdbscan', 'gm'):
             raise Exception('Clustering method needs to be \'hdbscan\' or \'gm\'')
