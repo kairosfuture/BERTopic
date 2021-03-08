@@ -1034,7 +1034,7 @@ class BERTopic:
 
         # HDBSCAN needs this topic index regulator as 1, because it finds outlier(-1) topic too
         tir = 1 if self.clustering_method == 'hdbscan' else 0  # topic_index_regulator
-        while len(self.get_topic_freq()) > self.nr_topics + 1:
+        while len(self.get_topic_freq()) > self.nr_topics + tir:
             # Find most similar topic to least common topic
             topic_to_merge = self.get_topic_freq().iloc[-1].Topic
             if topic_to_merge == -1:
