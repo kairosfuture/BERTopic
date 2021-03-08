@@ -200,11 +200,12 @@ class BERTopic:
         if verbose:
             logger.set_level("DEBUG")
 
-        if self.clustering_method == 'gm' and not isinstance(self.nr_topics, int):
-            raise ValueError('You need to specify nr_topics when using gm as the clustering method.')
+        if self.clustering_method == 'gmm' and not isinstance(self.nr_topics, int):
+            raise ValueError('You need to specify nr_topics when '
+                             'using gmm as the clustering method.')
 
-        if self.clustering_method not in ('hdbscan', 'gm'):
-            raise ValueError('Clustering method needs to be \'hdbscan\' or \'gm\'')
+        if self.clustering_method not in ('hdbscan', 'gmm'):
+            raise ValueError('Clustering method needs to be \'hdbscan\' or \'gmm\'')
 
     def fit(self,
             documents: List[str],
@@ -374,13 +375,13 @@ class BERTopic:
         umap_embeddings = self.umap_model.transform(embeddings)
         if self.clustering_method == 'hdbscan':
             predictions, _ = hdbscan.approximate_predict(self.cluster_model, umap_embeddings)
-        elif self.clustering_method == 'gm':
+        elif self.clustering_method == 'gmm':
             predictions = self.cluster_model.predict(umap_embeddings)
 
         if self.calculate_probabilities:
             if self.clustering_method == 'hdbscan':
                 probabilities = hdbscan.membership_vector(self.cluster_model, umap_embeddings)
-            elif self.clustering_method == 'gm':
+            elif self.clustering_method == 'gmm':
                 probabilities = self.cluster_model.predict_proba(umap_embeddings)
             # Append outlier probabilities
             probabilities = self._append_outlier(probabilities)
@@ -811,7 +812,7 @@ class BERTopic:
                                 cluster_selection_epsilon=self.cluster_selection_epsilon
                                 ).fit(umap_embeddings)
             documents['Topic'] = self.cluster_model.labels_
-        elif self.clustering_method == 'gm':
+        elif self.clustering_method == 'gmm':
             self.cluster_model = GaussianMixture(n_components=self.nr_topics,
                                                  random_state=0).fit(umap_embeddings)
             documents['Topic'] = self.cluster_model.predict(umap_embeddings)
@@ -830,7 +831,7 @@ class BERTopic:
             logger.info("Calculating doc-topic probabilities")
             if self.clustering_method == 'hdbscan':
                 probabilities = hdbscan.all_points_membership_vectors(self.cluster_model)
-            elif self.clustering_method == 'gm':
+            elif self.clustering_method == 'gmm':
                 probabilities = self.cluster_model.predict_proba(umap_embeddings)
             # Append outlier probabilities
             probabilities = self._append_outlier(probabilities)
