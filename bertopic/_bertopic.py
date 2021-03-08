@@ -204,7 +204,7 @@ class BERTopic:
             raise ValueError('You need to specify nr_topics when using gm as the clustering method.')
 
         if self.clustering_method not in ('hdbscan', 'gm'):
-            raise Exception('Clustering method needs to be \'hdbscan\' or \'gm\'')
+            raise ValueError('Clustering method needs to be \'hdbscan\' or \'gm\'')
 
     def fit(self,
             documents: List[str],
