@@ -580,6 +580,9 @@ class BERTopic:
         ```
         """
         check_is_fitted(self)
+        # be sure that we will return at least 2 topics except outliers(-1)
+        while nr_topics in [0, 1]:
+            nr_topics += 1
         self.nr_topics = nr_topics
         documents = pd.DataFrame({"Document": docs, "Topic": topics})
 
