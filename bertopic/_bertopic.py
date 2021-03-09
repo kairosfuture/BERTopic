@@ -1247,4 +1247,8 @@ class BERTopic:
         Returns:
             (document number, topic number +1) shaped numpy array
         """
+        if len(probabilities.shape) != 2:
+            # This happens when HDBSCAN gives just outlier class(-1),
+            # we are returning 1 probability for outlier class for each document
+            return np.ones((probabilities.shape[0], 1))
         return np.array([np.append(doc_probs, 1 - sum(doc_probs)) for doc_probs in probabilities])
