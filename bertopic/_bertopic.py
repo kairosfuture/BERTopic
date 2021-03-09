@@ -1235,7 +1235,6 @@ class BERTopic:
 
     @staticmethod
     def _append_outlier(probabilities):
-        # todo: handle this error, probabilities becomes float when there is only one topic
         # todo: we may define a below limit for topic number to handle
         """
         Adding outlier(-1) class probability to each document-topic probability distribution array.
