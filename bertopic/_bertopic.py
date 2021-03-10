@@ -1,4 +1,5 @@
 import warnings
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 import re
@@ -11,6 +12,7 @@ from typing import List, Tuple, Dict, Union
 # Models
 import umap
 import hdbscan
+from sklearn.mixture import GaussianMixture
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -26,6 +28,7 @@ from ._mmr import mmr
 try:
     import matplotlib.pyplot as plt
     import plotly.express as px
+
     _HAS_VIZ = True
 except ModuleNotFoundError as e:
     _HAS_VIZ = False
@@ -76,10 +79,12 @@ class BERTopic:
     try out BERTopic several times until you find the topics that suit
     you best.
     """
+
     def __init__(self,
                  language: str = "english",
                  embedding_model: str = None,
                  top_n_words: int = 10,
+                 clustering_method: str = "hdbscan",
                  nr_topics: Union[int, str] = None,
                  n_gram_range: Tuple[int, int] = (1, 1),
                  min_topic_size: int = 10,
@@ -159,9 +164,11 @@ class BERTopic:
 
         # Topic-based parameters
         if top_n_words > 30:
-            raise ValueError("top_n_words should be lower or equal to 30. The preferred value is 10.")
+            raise ValueError(
+                "top_n_words should be lower or equal to 30. The preferred value is 10.")
         self.top_n_words = top_n_words
         self.nr_topics = nr_topics
+        self.clustering_method = clustering_method
         self.min_topic_size = min_topic_size
         self.calculate_probabilities = True
         self.cluster_selection_epsilon = cluster_selection_epsilon
@@ -176,7 +183,8 @@ class BERTopic:
         self.stop_words = stop_words
         self.n_gram_range = n_gram_range
         self.vectorizer = vectorizer or CountVectorizer(tokenizer=identity, preprocessor=identity,
-                                                        token_pattern=None, ngram_range=self.n_gram_range,
+                                                        token_pattern=None,
+                                                        ngram_range=self.n_gram_range,
                                                         stop_words=self.stop_words)
 
         self.umap_model = None
@@ -191,6 +199,13 @@ class BERTopic:
 
         if verbose:
             logger.set_level("DEBUG")
+
+        if self.clustering_method == 'gmm' and not isinstance(self.nr_topics, int):
+            raise ValueError('You need to specify nr_topics when '
+                             'using gmm as the clustering method.')
+
+        if self.clustering_method not in ('hdbscan', 'gmm'):
+            raise ValueError('Clustering method needs to be \'hdbscan\' or \'gmm\'')
 
     def fit(self,
             documents: List[str],
@@ -235,7 +250,8 @@ class BERTopic:
                       documents: List[str],
                       embeddings: np.ndarray = None) -> Tuple[List[int],
                                                               Union[np.ndarray, None]]:
-        """ Fit the models on a collection of documents, generate topics, and return the docs with topics
+        """ Fit the models on a collection of documents,
+        generate topics, and return the docs with topics
 
         Arguments:
             documents: A list of documents to fit on
@@ -297,7 +313,7 @@ class BERTopic:
         # Extract topics by calculating c-TF-IDF
         self._extract_topics(documents)
 
-        if self.nr_topics:
+        if self.nr_topics and self.clustering_method == 'hdbscan':
             documents = self._reduce_topics(documents)
             probabilities = self._map_probabilities(probabilities)
 
@@ -357,10 +373,16 @@ class BERTopic:
             embeddings = self._extract_embeddings(documents)
 
         umap_embeddings = self.umap_model.transform(embeddings)
-        predictions, _ = hdbscan.approximate_predict(self.cluster_model, umap_embeddings)
+        if self.clustering_method == 'hdbscan':
+            predictions, _ = hdbscan.approximate_predict(self.cluster_model, umap_embeddings)
+        elif self.clustering_method == 'gmm':
+            predictions = self.cluster_model.predict(umap_embeddings)
 
         if self.calculate_probabilities:
-            probabilities = hdbscan.membership_vector(self.cluster_model, umap_embeddings)
+            if self.clustering_method == 'hdbscan':
+                probabilities = hdbscan.membership_vector(self.cluster_model, umap_embeddings)
+            elif self.clustering_method == 'gmm':
+                probabilities = self.cluster_model.predict_proba(umap_embeddings)
             # Append outlier probabilities
             probabilities = self._append_outlier(probabilities)
             if len(documents) == 1:
@@ -458,7 +480,8 @@ class BERTopic:
         if not stop_words:
             stop_words = self.stop_words
 
-        self.vectorizer = vectorizer or CountVectorizer(ngram_range=n_gram_range, stop_words=stop_words)
+        self.vectorizer = vectorizer or CountVectorizer(ngram_range=n_gram_range,
+                                                        stop_words=stop_words)
         documents = pd.DataFrame({"Document": docs, "Topic": topics})
         self._extract_topics(documents)
 
@@ -510,8 +533,9 @@ class BERTopic:
         if isinstance(topic, int):
             return self.topic_sizes[topic]
         else:
-            return pd.DataFrame(self.topic_sizes.items(), columns=['Topic', 'Count']).sort_values("Count",
-                                                                                                  ascending=False)
+            return pd.DataFrame(self.topic_sizes.items(), columns=['Topic', 'Count']).sort_values(
+                "Count",
+                ascending=False)
 
     def reduce_topics(self,
                       docs: List[str],
@@ -556,6 +580,8 @@ class BERTopic:
         ```
         """
         check_is_fitted(self)
+        # be sure that we will return at least 2 topics except outliers(-1)
+        nr_topics = max(nr_topics, 2)
         self.nr_topics = nr_topics
         documents = pd.DataFrame({"Document": docs, "Topic": topics})
 
@@ -576,16 +602,20 @@ class BERTopic:
         check_is_fitted(self)
         if not _HAS_VIZ:
             raise ModuleNotFoundError(f"In order to use this function you'll need to install "
-                                      f"additional dependencies;\npip install bertopic[visualization]")
+                                      f"additional dependencies;"
+                                      f"\npip install bertopic[visualization]")
 
         # Extract topic words and their frequencies
         topic_list = sorted(list(self.topics.keys()))
         frequencies = [self.topic_sizes[topic] for topic in topic_list]
-        words = [" | ".join([word[0] for word in self.get_topic(topic)[:5]]) for topic in topic_list]
+        words = [" | ".join([word[0] for word in self.get_topic(topic)[:5]]) for topic in
+                 topic_list]
 
         # Embed c-TF-IDF into 2D
         embeddings = MinMaxScaler().fit_transform(self.c_tf_idf.toarray())
-        embeddings = umap.UMAP(n_neighbors=2, n_components=2, metric='hellinger').fit_transform(embeddings)
+        embeddings = umap.UMAP(n_neighbors=2,
+                               n_components=2,
+                               metric='hellinger').fit_transform(embeddings)
 
         # Visualize with plotly
         df = pd.DataFrame({"x": embeddings[1:, 0], "y": embeddings[1:, 1],
@@ -620,13 +650,16 @@ class BERTopic:
         check_is_fitted(self)
         if not _HAS_VIZ:
             raise ModuleNotFoundError(f"In order to use this function you'll need to install "
-                                      f"additional dependencies;\npip install bertopic[visualization]")
+                                      f"additional dependencies;"
+                                      f"\npip install bertopic[visualization]")
         if len(probabilities[probabilities > min_probability]) == 0:
             raise ValueError("There are no values where `min_probability` is higher than the "
-                             "probabilities that were supplied. Lower `min_probability` to prevent this error.")
+                             "probabilities that were supplied. "
+                             "Lower `min_probability` to prevent this error.")
         if not self.calculate_probabilities:
-            raise ValueError("This visualization cannot be used if you have set `calculate_probabilities` to False "
-                             "as it uses the topic probabilities. ")
+            raise ValueError("This visualization cannot be used if you have set "
+                             "`calculate_probabilities` to False "
+                             "as it uses the topic probabilities.")
 
         # Get values and indices equal or exceed the minimum probability
         labels_idx = np.argwhere(probabilities >= min_probability).flatten()
@@ -652,14 +685,16 @@ class BERTopic:
         # Create figure
         fig, ax = plt.subplots(figsize=figsize)
         plt.hlines(y=pos, xmin=0, xmax=vals, color='#333F4B', alpha=0.2, linewidth=15)
-        plt.hlines(y=np.argmax(vals), xmin=0, xmax=max(vals), color='#333F4B', alpha=1, linewidth=15)
+        plt.hlines(y=np.argmax(vals), xmin=0, xmax=max(vals), color='#333F4B', alpha=1,
+                   linewidth=15)
 
         # Set ticks and labels
         ax.tick_params(axis='both', which='major', labelsize=12)
         ax.set_xlabel('Probability', fontsize=15, fontweight='black', color='#333F4B')
         ax.set_ylabel('')
         plt.yticks(pos, labels)
-        fig.text(0, 1, 'Topic Probability Distribution', fontsize=15, fontweight='black', color='#333F4B')
+        fig.text(0, 1, 'Topic Probability Distribution', fontsize=15, fontweight='black',
+                 color='#333F4B')
 
         # Update spine style
         ax.spines['right'].set_visible(False)
@@ -770,33 +805,45 @@ class BERTopic:
                        and newly added Topics
             probabilities: The distribution of probabilities
         """
-        self.cluster_model = hdbscan.HDBSCAN(min_cluster_size=self.min_topic_size,
-                                             metric='euclidean',
-                                             cluster_selection_method='eom',
-                                             prediction_data=True,
-                                             cluster_selection_epsilon=self.cluster_selection_epsilon
-                                             ).fit(umap_embeddings)
-        documents['Topic'] = self.cluster_model.labels_
+        if self.clustering_method == 'hdbscan':
+            self.cluster_model = \
+                hdbscan.HDBSCAN(min_cluster_size=self.min_topic_size,
+                                metric='euclidean',
+                                cluster_selection_method='eom',
+                                prediction_data=True,
+                                cluster_selection_epsilon=self.cluster_selection_epsilon
+                                ).fit(umap_embeddings)
+            documents['Topic'] = self.cluster_model.labels_
+        elif self.clustering_method == 'gmm':
+            self.cluster_model = GaussianMixture(n_components=self.nr_topics,
+                                                 random_state=0).fit(umap_embeddings)
+            documents['Topic'] = self.cluster_model.predict(umap_embeddings)
 
-        # check if (doc # < 100.000) and (cluster # < 255) for feasible running time
         doc_number = len(documents.Document.values)
-        topic_number = len(set(self.cluster_model.labels_))
-        logger.info(f"Number of topics detected: {topic_number}")
-        self.calculate_probabilities = \
-            doc_number < self.doc_number_limit4probs and topic_number < self.topic_number_limit4probs
+        topic_number = len(set(documents.Topic.values))
+
+        logger.info(f"Number of topics detected/created: {topic_number}")
+        # check if (doc # < 100.000) and (cluster # < 255) for feasible running time
+        self.calculate_probabilities = not \
+            (doc_number > self.doc_number_limit4probs
+             and
+             topic_number > self.topic_number_limit4probs)
 
         if self.calculate_probabilities:
             logger.info("Calculating doc-topic probabilities")
-            probabilities = hdbscan.all_points_membership_vectors(self.cluster_model)
+            if self.clustering_method == 'hdbscan':
+                probabilities = hdbscan.all_points_membership_vectors(self.cluster_model)
+            elif self.clustering_method == 'gmm':
+                probabilities = self.cluster_model.predict_proba(umap_embeddings)
             # Append outlier probabilities
             probabilities = self._append_outlier(probabilities)
         else:
-            logger.info(f"Skipped doc-topic probability distributions, since requires too much time for "
-                        f"{doc_number} documents and {topic_number} topics.")
+            logger.info(f"Skipped doc-topic probability distributions, since requires "
+                        f"too much time for{doc_number} documents and {topic_number} topics.")
             probabilities = None
 
         self._update_topic_size(documents)
-        logger.info("Clustered UMAP embeddings with HDBSCAN")
+        logger.info(f"Clustered UMAP embeddings with {self.clustering_method.upper()}")
         return documents, probabilities
 
     def _extract_topics(self, documents: pd.DataFrame):
@@ -845,7 +892,9 @@ class BERTopic:
                 word_importance = [val[1] for val in self.get_topic(topic)]
                 if sum(word_importance) == 0:
                     word_importance = [1 for _ in range(len(self.get_topic(topic)))]
-                topic_embedding = np.average(embeddings[i * n: n + (i * n)], weights=word_importance, axis=0)
+                topic_embedding = np.average(embeddings[i * n: n + (i * n)],
+                                             weights=word_importance,
+                                             axis=0)
                 topic_embeddings.append(topic_embedding)
 
             self.topic_embeddings = topic_embeddings
@@ -879,7 +928,8 @@ class BERTopic:
         Arguments:
             documents: Updated dataframe with documents and their corresponding IDs and newly added Topics
         """
-        sizes = documents.groupby(['Topic']).count().sort_values("Document", ascending=False).reset_index()
+        sizes = documents.groupby(['Topic']).count().sort_values("Document",
+                                                                 ascending=False).reset_index()
         self.topic_sizes = dict(zip(sizes.Topic, sizes.Document))
 
     def _extract_words_per_topic(self, words: List[str]):
@@ -906,8 +956,13 @@ class BERTopic:
                 words = [word[0] for word in topic_words]
                 word_embeddings = model.encode(words)
                 topic_embedding = model.encode(" ".join(words)).reshape(1, -1)
-                topic_words = mmr(topic_embedding, word_embeddings, words, top_n=self.top_n_words, diversity=0)
-                self.topics[topic] = [(word, value) for word, value in self.topics[topic] if word in topic_words]
+                topic_words = mmr(topic_embedding,
+                                  word_embeddings,
+                                  words,
+                                  top_n=self.top_n_words,
+                                  diversity=0)
+                self.topics[topic] = [(word, value) for word, value in self.topics[topic]
+                                      if word in topic_words]
 
     def _select_embedding_model(self) -> SentenceTransformer:
         """ Select an embedding model based on language or a specific sentence transformer models.
@@ -938,7 +993,8 @@ class BERTopic:
 
             else:
                 raise ValueError(f"{self.language} is currently not supported. However, you can "
-                                 f"create any embeddings yourself and pass it through fit_transform(docs, embeddings)\n"
+                                 f"create any embeddings yourself and "
+                                 f"pass it through fit_transform(docs, embeddings)\n"
                                  "Else, please select a language from the following list:\n"
                                  f"{languages}")
 
@@ -979,11 +1035,19 @@ class BERTopic:
         similarities = cosine_similarity(self.c_tf_idf)
         np.fill_diagonal(similarities, 0)
 
-        while len(self.get_topic_freq()) > self.nr_topics + 1:
+        # HDBSCAN needs this topic index regulator as 1, because it finds outlier(-1) topic too
+        tir = 1 if self.clustering_method == 'hdbscan' else 0  # topic_index_regulator
+        while len(self.get_topic_freq()) > self.nr_topics + tir:
             # Find most similar topic to least common topic
             topic_to_merge = self.get_topic_freq().iloc[-1].Topic
-            topic_to_merge_into = np.argmax(similarities[topic_to_merge + 1]) - 1
-            similarities[:, topic_to_merge + 1] = -1
+            if topic_to_merge == -1:
+                topic_to_merge = self.get_topic_freq().iloc[-2].Topic
+
+            topic_to_merge_into = np.argmax(similarities[topic_to_merge + tir]) - tir
+            if topic_to_merge_into == -1:
+                # merge into second similar topic if the most similar is outlier(-1)
+                topic_to_merge_into = np.argsort(similarities[topic_to_merge + tir])[-2] - tir
+            similarities[:, topic_to_merge + tir] = -1
 
             # Update Topic labels
             documents.loc[documents.Topic == topic_to_merge, "Topic"] = topic_to_merge_into
@@ -995,9 +1059,13 @@ class BERTopic:
         self._extract_topics(documents)
 
         if initial_nr_topics <= self.nr_topics:
-            logger.info(f"Since {initial_nr_topics} were found, they could not be reduced to {self.nr_topics}")
+            logger.info(
+                f"Since {initial_nr_topics} were found, "
+                f"they could not be reduced to {self.nr_topics}")
         else:
-            logger.info(f"Reduced number of topics from {initial_nr_topics} to {len(self.get_topic_freq())}")
+            logger.info(
+                f"Reduced number of topics from {initial_nr_topics} "
+                f"to {len(self.get_topic_freq())}")
 
         return documents
 
@@ -1023,17 +1091,22 @@ class BERTopic:
         not_mapped = int(np.ceil(len(self.get_topic_freq()) * 0.1))
         to_map = self.get_topic_freq().Topic.values[not_mapped:][::-1]
 
+        # HDBSCAN needs this index regulator, because it finds outlier(-1) topic too
+        topic_index_regulator = 1 if self.clustering_method == 'hdbscan' else 0
         for topic_to_merge in to_map:
             # Find most similar topic to least common topic
-            similarity = np.max(similarities[topic_to_merge + 1])
-            topic_to_merge_into = np.argmax(similarities[topic_to_merge + 1]) - 1
+            similarity = np.max(similarities[topic_to_merge + topic_index_regulator])
+            topic_to_merge_into = \
+                np.argmax(
+                    similarities[topic_to_merge + topic_index_regulator]
+                ) - topic_index_regulator
 
             # Only map topics if they have a high similarity
             if (similarity > 0.915) & (topic_to_merge_into not in has_mapped):
                 # Update Topic labels
                 documents.loc[documents.Topic == topic_to_merge, "Topic"] = topic_to_merge_into
                 self.mapped_topics[topic_to_merge] = topic_to_merge_into
-                similarities[:, topic_to_merge + 1] = -1
+                similarities[:, topic_to_merge + topic_index_regulator] = -1
 
                 # Update new topic content
                 self._update_topic_size(documents)
@@ -1041,7 +1114,8 @@ class BERTopic:
 
         _ = self._extract_topics(documents)
 
-        logger.info(f"Reduced number of topics from {initial_nr_topics} to {len(self.get_topic_freq())}")
+        logger.info(
+            f"Reduced number of topics from {initial_nr_topics} to {len(self.get_topic_freq())}")
 
         return documents
 
@@ -1077,7 +1151,8 @@ class BERTopic:
             if topic_selected == -1:
                 marker_color = ["#B0BEC5" for _ in topic_list[1:]]
             else:
-                marker_color = ["red" if topic == topic_selected else "#B0BEC5" for topic in topic_list[1:]]
+                marker_color = ["red" if topic == topic_selected else "#B0BEC5" for topic in
+                                topic_list[1:]]
             return [{'marker.color': [marker_color]}]
 
         # Prepare figure range
@@ -1085,8 +1160,10 @@ class BERTopic:
         y_range = (df.y.min() - abs((df.y.min()) * .15), df.y.max() + abs((df.y.max()) * .15))
 
         # Plot topics
-        fig = px.scatter(df, x="x", y="y", size="Size", size_max=40, template="simple_white", labels={"x": "", "y": ""},
-                         hover_data={"x": False, "y": False, "Topic": True, "Words": True, "Size": True})
+        fig = px.scatter(df, x="x", y="y", size="Size", size_max=40, template="simple_white",
+                         labels={"x": "", "y": ""},
+                         hover_data={"x": False, "y": False, "Topic": True, "Words": True,
+                                     "Size": True})
         fig.update_traces(marker=dict(color="#B0BEC5", line=dict(width=2, color='DarkSlateGrey')))
 
         # Update hover order
@@ -1095,7 +1172,8 @@ class BERTopic:
                                                      "Size: %{customdata[4]}"]))
 
         # Create a slider for topic selection
-        steps = [dict(label=f"Topic {topic}", method="update", args=get_color(topic)) for topic in topic_list[1:]]
+        steps = [dict(label=f"Topic {topic}", method="update", args=get_color(topic)) for topic in
+                 topic_list[1:]]
         sliders = [dict(active=0, pad={"t": 50}, steps=steps)]
 
         # Stylize layout
@@ -1157,6 +1235,7 @@ class BERTopic:
 
     @staticmethod
     def _append_outlier(probabilities):
+        # todo: we may define a below limit for topic number to handle
         """
         Adding outlier(-1) class probability to each document-topic probability distribution array.
         It can be reached with using index -1, since we are using append.
@@ -1167,4 +1246,8 @@ class BERTopic:
         Returns:
             (document number, topic number +1) shaped numpy array
         """
+        if len(probabilities.shape) != 2:
+            # This happens when HDBSCAN gives just outlier class(-1),
+            # we are returning 1 probability for outlier class for each document
+            return np.ones((probabilities.shape[0], 1))
         return np.array([np.append(doc_probs, 1 - sum(doc_probs)) for doc_probs in probabilities])
