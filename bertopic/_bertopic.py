@@ -96,7 +96,10 @@ class BERTopic:
                  allow_st_model: bool = True,
                  cluster_selection_epsilon: float = 0.0,
                  doc_number_limit4probs: int = 100000,
-                 topic_number_limit4probs: int = 255):
+                 topic_number_limit4probs: int = 255,
+                 custom_model=None,
+                 keyword_diversity=0,
+                 weighted=False):
         """BERTopic initialization
 
         Args:
@@ -161,6 +164,9 @@ class BERTopic:
         self.language = language
         self.embedding_model = embedding_model
         self.allow_st_model = allow_st_model
+        self.custom_model = custom_model
+        self.keyword_diversity = keyword_diversity
+        self.weighted = weighted
 
         # Topic-based parameters
         if top_n_words > 30:
@@ -196,7 +202,6 @@ class BERTopic:
         self.topic_embeddings = None
         self.topic_sim_matrix = None
         self.custom_embeddings = False
-
         if verbose:
             logger.set_level("DEBUG")
 
@@ -206,6 +211,9 @@ class BERTopic:
 
         if self.clustering_method not in ('hdbscan', 'gmm'):
             raise ValueError('Clustering method needs to be \'hdbscan\' or \'gmm\'')
+
+        if self.custom_model and not self.allow_st_model:
+            raise ValueError('You need to allow ST model for giving custom embedding model')
 
     def fit(self,
             documents: List[str],
@@ -939,10 +947,11 @@ class BERTopic:
         words: List of all words (sorted according to tf_idf matrix position)
         """
 
-        # Get top 30 words per topic based on c-TF-IDF score
+        # Get top 50 words per topic based on c-TF-IDF score
         c_tf_idf = self.c_tf_idf.toarray()
         labels = sorted(list(self.topic_sizes.keys()))
-        indices = c_tf_idf.argsort()[:, -30:]
+        n = 50
+        indices = c_tf_idf.argsort()[:, -n:]
         self.topics = {label: [(words[j], c_tf_idf[i][j])
                                for j in indices[i]][::-1]
                        for i, label in enumerate(labels)}
@@ -952,15 +961,25 @@ class BERTopic:
         if not self.custom_embeddings or all([self.custom_embeddings and self.allow_st_model]):
             model = self._select_embedding_model()
 
-            for topic, topic_words in self.topics.items():
+            for i, items in enumerate(self.topics.items()):
+                topic = items[0]
+                topic_words = items[1]
                 words = [word[0] for word in topic_words]
                 word_embeddings = model.encode(words)
-                topic_embedding = model.encode(" ".join(words)).reshape(1, -1)
+                if not self.weighted:
+                    topic_embedding = model.encode(" ".join(words)).reshape(1, -1)
+                else:
+                    word_importance = [val[1] for val in self.get_topic(topic)]
+                    if sum(word_importance) == 0:
+                        word_importance = [1 for _ in range(len(self.get_topic(topic)))]
+                    topic_embedding = np.average(word_embeddings,
+                                                 weights=word_importance,
+                                                 axis=0).reshape(1, -1)
                 topic_words = mmr(topic_embedding,
                                   word_embeddings,
                                   words,
                                   top_n=self.top_n_words,
-                                  diversity=0)
+                                  diversity=self.keyword_diversity)
                 self.topics[topic] = [(word, value) for word, value in self.topics[topic]
                                       if word in topic_words]
 
@@ -969,6 +988,10 @@ class BERTopic:
         When selecting a language, we choose distilbert-base-nli-stsb-mean-tokens for English and
         xlm-r-bert-base-nli-stsb-mean-tokens for all other languages as it support 100+ languages.
         """
+
+        if self.custom_model:
+            logger.info("  Loading CUSTOM embedding model")
+            return self.custom_model
 
         # Used for fine-tuning the topic representation
         # If a custom embeddings are used, we use the multi-langual model
