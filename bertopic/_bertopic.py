@@ -966,15 +966,15 @@ class BERTopic:
                 topic_words = items[1]
                 words = [word[0] for word in topic_words]
                 word_embeddings = model.encode(words)
-                if not self.weighted:
-                    topic_embedding = model.encode(" ".join(words)).reshape(1, -1)
-                else:
+                if self.weighted:
                     word_importance = [val[1] for val in self.get_topic(topic)]
                     if sum(word_importance) == 0:
                         word_importance = [1 for _ in range(len(self.get_topic(topic)))]
                     topic_embedding = np.average(word_embeddings,
                                                  weights=word_importance,
                                                  axis=0).reshape(1, -1)
+                else:
+                    topic_embedding = model.encode(" ".join(words)).reshape(1, -1)
                 topic_words = mmr(topic_embedding,
                                   word_embeddings,
                                   words,
