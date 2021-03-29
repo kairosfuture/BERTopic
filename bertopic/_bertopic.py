@@ -957,9 +957,11 @@ class BERTopic:
         if self.top_n_words < n:
             self.topics = self.mmr_keywords(self.top_n_words, keyword_diversity=0.1)
 
-    def mmr_keywords(self, top_n: int = 10, keywords: Dict[str, Tuple[str, float]] = None,
+    def mmr_keywords(self, top_n: int = 10,
+                     keywords: Union[Dict[str, List[Tuple[str, float]]],
+                                     List[Tuple[str, float]]] = None,
                      keyword_diversity: float = 0.0, weighted_keywords: bool = False) -> \
-            Dict[str, Tuple[str, float]]:
+            Dict[str, List[Tuple[str, float]]]:
         """ Returns top_n keywords among the given keywords or self.topics if nothing is given.
 
                 MMR considers the similarity of keywords/keyphrases with the
@@ -979,7 +981,10 @@ class BERTopic:
         Returns:
             result_keywords: manipulated keywords per topic
         """
-        if keywords:
+        if isinstance(keywords, list):
+            # when the method is called for just one topic
+            init_keywords = {0: keywords}
+        elif keywords:
             init_keywords = keywords
         else:
             init_keywords = self.topics
@@ -999,15 +1004,17 @@ class BERTopic:
                 topic_words = items[1]
                 words = [word[0] for word in topic_words]
                 word_embeddings = model.encode(words)
+
                 if weighted_keywords:
-                    word_importance = [val[1] for val in self.get_topic(topic)]
+                    word_importance = [val[1] for val in init_keywords[topic]]
                     if sum(word_importance) == 0:
-                        word_importance = [1 for _ in range(len(self.get_topic(topic)))]
+                        word_importance = [1 for _ in range(len(init_keywords[topic]))]
                     topic_embedding = np.average(word_embeddings,
                                                  weights=word_importance,
                                                  axis=0).reshape(1, -1)
                 else:
                     topic_embedding = model.encode(" ".join(words)).reshape(1, -1)
+
                 topic_words = mmr(topic_embedding,
                                   word_embeddings,
                                   words,
