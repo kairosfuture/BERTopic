@@ -96,8 +96,7 @@ class BERTopic:
                  allow_st_model: bool = True,
                  cluster_selection_epsilon: float = 0.0,
                  doc_number_limit4probs: int = 100000,
-                 topic_number_limit4probs: int = 255,
-                 custom_embedding_model=None):
+                 topic_number_limit4probs: int = 255):
         """BERTopic initialization
 
         Args:
@@ -162,7 +161,6 @@ class BERTopic:
         self.language = language
         self.embedding_model = embedding_model
         self.allow_st_model = allow_st_model
-        self.custom_embedding_model = custom_embedding_model
 
         # Topic-based parameters
         if top_n_words > 30:
@@ -207,9 +205,6 @@ class BERTopic:
 
         if self.clustering_method not in ('hdbscan', 'gmm'):
             raise ValueError('Clustering method needs to be \'hdbscan\' or \'gmm\'')
-
-        if self.custom_embedding_model and not self.allow_st_model:
-            raise ValueError('You need to set allow_st_model True to give custom embedding model')
 
     def fit(self,
             documents: List[str],
@@ -954,15 +949,11 @@ class BERTopic:
                                for j in indices[i]][::-1]
                        for i, label in enumerate(labels)}
 
-        if self.top_n_words < n:
-            self.topics = self.mmr_keywords(self.top_n_words, keyword_diversity=0.1)
-
-    def mmr_keywords(self, top_n: int = 10,
-                     keywords: Union[Dict[str, List[Tuple[str, float]]],
-                                     List[Tuple[str, float]]] = None,
-                     keyword_diversity: float = 0.0, weighted_keywords: bool = False) -> \
-            Dict[str, List[Tuple[str, float]]]:
-        """ Returns top_n keywords among the given keywords or self.topics if nothing is given.
+    def mmr_keywords(self, embedding_model,
+                     keywords: Union[Dict[str, List[Tuple[str, float]]], List[Tuple[str, float]]],
+                     top_n: int = 10, keyword_diversity: float = 0.0,
+                     weighted_keywords: bool = False) -> Dict[str, List[Tuple[str, float]]]:
+        """ Returns top_n keywords among the given keywords.
 
                 MMR considers the similarity of keywords/keyphrases with the
                 document, along with the similarity of already selected
@@ -970,8 +961,9 @@ class BERTopic:
                 that maximize their within diversity with respect to the document.
 
         Arguments:
-            top_n: how many words to return
+            embedding_model: Model to embed keywords to create word and topic embeddings
             keywords: topic dictionary to manipulate, might be None, then use self.topics
+            top_n: how many words to return
             keyword_diversity: How diverse the select keywords/keyphrases are.
                                 Values between 0 and 1 with 0 being not diverse at all
                                 and 1 being most diverse.
@@ -984,10 +976,8 @@ class BERTopic:
         if isinstance(keywords, list):
             # when the method is called for just one topic
             init_keywords = {0: keywords}
-        elif keywords:
-            init_keywords = keywords
         else:
-            init_keywords = self.topics
+            init_keywords = keywords
 
         init_keyword_number = len(next(iter(init_keywords.values())))
         if top_n >= init_keyword_number:
@@ -996,34 +986,29 @@ class BERTopic:
 
         # Extract word embeddings for the given words per topic and compare it
         # with the topic embedding to keep only the words most similar to the topic embedding
-        if not self.custom_embeddings or all([self.custom_embeddings and self.allow_st_model]):
-            result_keywords = {}
-            model = self._select_embedding_model()
-            for i, items in enumerate(init_keywords.items()):
-                topic = items[0]
-                topic_words = items[1]
-                words = [word[0] for word in topic_words]
-                word_embeddings = model.encode(words)
+        result_keywords = {}
+        for topic, topic_words in init_keywords.items():
+            words = [word[0] for word in topic_words]
+            word_embeddings = embedding_model.encode(words)
 
-                if weighted_keywords:
-                    word_importance = [val[1] for val in init_keywords[topic]]
-                    if sum(word_importance) == 0:
-                        word_importance = [1 for _ in range(len(init_keywords[topic]))]
-                    topic_embedding = np.average(word_embeddings,
-                                                 weights=word_importance,
-                                                 axis=0).reshape(1, -1)
-                else:
-                    topic_embedding = model.encode(" ".join(words)).reshape(1, -1)
+            if weighted_keywords:
+                word_importance = [val[1] for val in init_keywords[topic]]
+                if sum(word_importance) == 0:
+                    word_importance = [1 for _ in range(len(init_keywords[topic]))]
+                topic_embedding = np.average(word_embeddings,
+                                             weights=word_importance,
+                                             axis=0).reshape(1, -1)
+            else:
+                topic_embedding = embedding_model.encode(" ".join(words)).reshape(1, -1)
 
-                topic_words = mmr(topic_embedding,
-                                  word_embeddings,
-                                  words,
-                                  top_n=top_n,
-                                  diversity=keyword_diversity)
-                result_keywords[topic] = [(word, value) for word, value in init_keywords[topic]
-                                          if word in topic_words]
-            return result_keywords
-        return init_keywords
+            topic_words = mmr(topic_embedding,
+                              word_embeddings,
+                              words,
+                              top_n=top_n,
+                              diversity=keyword_diversity)
+            result_keywords[topic] = [(word, value) for word, value in init_keywords[topic]
+                                      if word in topic_words]
+        return result_keywords
 
     def _select_embedding_model(self) -> SentenceTransformer:
         """ Select an embedding model based on language or a specific sentence transformer models.
