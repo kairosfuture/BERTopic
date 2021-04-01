@@ -196,7 +196,6 @@ class BERTopic:
         self.topic_embeddings = None
         self.topic_sim_matrix = None
         self.custom_embeddings = False
-
         if verbose:
             logger.set_level("DEBUG")
 
@@ -824,10 +823,9 @@ class BERTopic:
 
         logger.info(f"Number of topics detected/created: {topic_number}")
         # check if (doc # < 100.000) and (cluster # < 255) for feasible running time
-        self.calculate_probabilities = not \
-            (doc_number > self.doc_number_limit4probs
-             and
-             topic_number > self.topic_number_limit4probs)
+        self.calculate_probabilities = \
+            doc_number < self.doc_number_limit4probs and \
+            topic_number < self.topic_number_limit4probs
 
         if self.calculate_probabilities:
             logger.info("Calculating doc-topic probabilities")
@@ -860,7 +858,7 @@ class BERTopic:
 
         self.c_tf_idf, words = self._c_tf_idf(documents_per_topic, m=len(documents))
         self._extract_words_per_topic(words)
-        self._create_topic_vectors()
+        # self._create_topic_vectors()  # we don't use this feature (topic search with keyword)
 
     def _create_topic_vectors(self):
         """ Creates embeddings per topics based on their topic representation
@@ -933,42 +931,93 @@ class BERTopic:
         self.topic_sizes = dict(zip(sizes.Topic, sizes.Document))
 
     def _extract_words_per_topic(self, words: List[str]):
-        """ Based on tf_idf scores per topic, extract the top n words per topic
+        """ Based on tf_idf scores per topic, extract the top n words per topic.
+
+        MMR is called if self.top_n_words is lower than 30.
 
         Arguments:
         words: List of all words (sorted according to tf_idf matrix position)
         """
 
-        # Get top 30 words per topic based on c-TF-IDF score
         c_tf_idf = self.c_tf_idf.toarray()
         labels = sorted(list(self.topic_sizes.keys()))
-        indices = c_tf_idf.argsort()[:, -30:]
+        # Get top 30 words per topic based on c-TF-IDF score
+        n = 30
+        indices = c_tf_idf.argsort()[:, -n:]
         self.topics = {label: [(words[j], c_tf_idf[i][j])
                                for j in indices[i]][::-1]
                        for i, label in enumerate(labels)}
 
-        # Extract word embeddings for the top 30 words per topic and compare it
-        # with the topic embedding to keep only the words most similar to the topic embedding
-        if not self.custom_embeddings or all([self.custom_embeddings and self.allow_st_model]):
-            model = self._select_embedding_model()
+    def mmr_keywords(self, embedding_model,
+                     keywords: Union[Dict[str, List[Tuple[str, float]]], List[Tuple[str, float]]],
+                     top_n: int = 10, keyword_diversity: float = 0.0,
+                     weighted_keywords: bool = False) -> Dict[str, List[Tuple[str, float]]]:
+        """ Returns top_n keywords among the given keywords.
 
-            for topic, topic_words in self.topics.items():
-                words = [word[0] for word in topic_words]
-                word_embeddings = model.encode(words)
-                topic_embedding = model.encode(" ".join(words)).reshape(1, -1)
-                topic_words = mmr(topic_embedding,
-                                  word_embeddings,
-                                  words,
-                                  top_n=self.top_n_words,
-                                  diversity=0)
-                self.topics[topic] = [(word, value) for word, value in self.topics[topic]
+                MMR considers the similarity of keywords/keyphrases with the
+                document, along with the similarity of already selected
+                keywords and keyphrases. This results in a selection of keywords
+                that maximize their within diversity with respect to the document.
+
+        Arguments:
+            embedding_model: Model to embed keywords to create word and topic embeddings
+            keywords: topic dictionary to manipulate, might be None, then use self.topics
+            top_n: how many words to return
+            keyword_diversity: How diverse the select keywords/keyphrases are.
+                                Values between 0 and 1 with 0 being not diverse at all
+                                and 1 being most diverse.
+            weighted_keywords: whether topic embedding will be calculated with topic word embedding
+                                in weighted way or just combination of the topic words
+
+        Returns:
+            result_keywords: manipulated keywords per topic
+        """
+        if isinstance(keywords, list):
+            # when the method is called for just one topic
+            init_keywords = {0: keywords}
+        else:
+            init_keywords = keywords
+
+        init_keyword_number = len(next(iter(init_keywords.values())))
+        if top_n >= init_keyword_number:
+            raise ValueError(f"top_n must be smaller than existed topics' "
+                             f"keyword number - {init_keyword_number}")
+
+        # Extract word embeddings for the given words per topic and compare it
+        # with the topic embedding to keep only the words most similar to the topic embedding
+        result_keywords = {}
+        for topic, topic_words in init_keywords.items():
+            words = [word[0] for word in topic_words]
+            word_embeddings = embedding_model.encode(words)
+
+            if weighted_keywords:
+                word_importance = [val[1] for val in init_keywords[topic]]
+                if sum(word_importance) == 0:
+                    word_importance = [1 for _ in range(len(init_keywords[topic]))]
+                topic_embedding = np.average(word_embeddings,
+                                             weights=word_importance,
+                                             axis=0).reshape(1, -1)
+            else:
+                topic_embedding = embedding_model.encode(" ".join(words)).reshape(1, -1)
+
+            topic_words = mmr(topic_embedding,
+                              word_embeddings,
+                              words,
+                              top_n=top_n,
+                              diversity=keyword_diversity)
+            result_keywords[topic] = [(word, value) for word, value in init_keywords[topic]
                                       if word in topic_words]
+        return result_keywords
 
     def _select_embedding_model(self) -> SentenceTransformer:
         """ Select an embedding model based on language or a specific sentence transformer models.
         When selecting a language, we choose distilbert-base-nli-stsb-mean-tokens for English and
         xlm-r-bert-base-nli-stsb-mean-tokens for all other languages as it support 100+ languages.
         """
+
+        if self.custom_embedding_model:
+            logger.info(f"Loading CUSTOM embedding model")
+            return self.custom_embedding_model
 
         # Used for fine-tuning the topic representation
         # If a custom embeddings are used, we use the multi-langual model
