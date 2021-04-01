@@ -823,10 +823,9 @@ class BERTopic:
 
         logger.info(f"Number of topics detected/created: {topic_number}")
         # check if (doc # < 100.000) and (cluster # < 255) for feasible running time
-        self.calculate_probabilities = not \
-            (doc_number > self.doc_number_limit4probs
-             and
-             topic_number > self.topic_number_limit4probs)
+        self.calculate_probabilities = \
+            doc_number < self.doc_number_limit4probs and \
+            topic_number < self.topic_number_limit4probs
 
         if self.calculate_probabilities:
             logger.info("Calculating doc-topic probabilities")
