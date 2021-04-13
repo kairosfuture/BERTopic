@@ -784,7 +784,8 @@ class BERTopic:
                                         n_components=self.n_components,
                                         min_dist=0.0,
                                         metric='cosine',
-                                        random_state=42).fit(embeddings)
+                                        random_state=42,
+                                        transform_seed=42).fit(embeddings)
         umap_embeddings = self.umap_model.transform(embeddings)
         logger.info("Reduced dimensionality with UMAP")
         return umap_embeddings
