@@ -916,9 +916,25 @@ class BERTopic:
         X = count.transform(documents)
         transformer = ClassTFIDF().fit(X, n_samples=m)
         c_tf_idf = transformer.transform(X)
+
+        self.extract_popular_keywords(X, words, list(documents_per_topic.Topic.values))
+
         self.topic_sim_matrix = cosine_similarity(c_tf_idf)
 
         return c_tf_idf, words
+
+    def extract_popular_keywords(self, count_matrix, words, topic_ids):
+        per_topic_counts = count_matrix
+        all_docs_counts = np.squeeze(np.asarray(count_matrix.sum(axis=0)))
+
+        all_popular_word = words[np.argmax(all_docs_counts)]
+
+        per_topic_popular = {}
+        for topic_id in topic_ids:
+            per_topic_popular[topic_id] = words[np.argmax(per_topic_counts[topic_id])]
+
+        self.popular_keywords = {'all_topics': all_popular_word,
+                                 'per_topic': per_topic_popular}
 
     def _update_topic_size(self, documents: pd.DataFrame) -> None:
         """ Calculate the topic sizes
