@@ -942,7 +942,7 @@ class BERTopic:
         c_tf_idf = self.c_tf_idf.toarray()
         labels = sorted(list(self.topic_sizes.keys()))
         # Get top 30 words per topic based on c-TF-IDF score
-        n = 30
+        n = 300000000
         indices = c_tf_idf.argsort()[:, -n:]
         self.topics = {label: [(words[j], c_tf_idf[i][j])
                                for j in indices[i]][::-1]
