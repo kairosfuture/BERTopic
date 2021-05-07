@@ -914,8 +914,9 @@ class BERTopic:
         count = self.vectorizer.fit(documents)
         words = count.get_feature_names()
         idx = words.index('bank')
+        idx_c = words.index('customer')
         X = count.transform(documents)
-        transformer = ClassTFIDF().fit(X, n_samples=m, idx=idx)
+        transformer = ClassTFIDF().fit(X, n_samples=m, idx=idx, idx_c=idx_c)
         c_tf_idf = transformer.transform(X)
         self.topic_sim_matrix = cosine_similarity(c_tf_idf)
 

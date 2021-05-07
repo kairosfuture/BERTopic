@@ -22,7 +22,7 @@ class ClassTFIDF(TfidfTransformer):
         super(ClassTFIDF, self).__init__(*args, **kwargs)
         self.df = None
 
-    def fit(self, X: sp.csr_matrix, n_samples: int, idx=None):
+    def fit(self, X: sp.csr_matrix, n_samples: int, idx=None, idx_c=None):
         """Learn the idf vector (global term weights).
 
         Arguments:
@@ -42,6 +42,7 @@ class ClassTFIDF(TfidfTransformer):
             # idf = np.log(n_samples / self.df)
             if idx:
                 print(f"------> for word _bank_ avg:{avg_nr_samples}, self.df:{self.df[idx]}")
+                print(f"------> for word _customer_ avg:{avg_nr_samples}, self.df:{self.df[idx_c]}")
                 print(f"------> for a random word avg:{avg_nr_samples}, self.df:{self.df[2000]}")
                 print(f"------> for a random word avg:{avg_nr_samples}, self.df:{self.df[2004]}")
                 print(f"------> for a random word avg:{avg_nr_samples}, self.df:{self.df[2019]}")
