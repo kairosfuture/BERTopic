@@ -42,13 +42,14 @@ class ClassTFIDF(TfidfTransformer):
             # idf = np.log(n_samples / self.df)
             if idx:
                 print(f"------> for word _bank_ avg:{avg_nr_samples}, self.df:{self.df[idx]}")
+                print(f"------> for a random word avg:{avg_nr_samples}, self.df:{self.df[2000]}")
                 i = 0
                 words = []
-                for df in self.df:
+                for idxx, df in enumerate(self.df):
                     if df > avg_nr_samples:
                         i += 1
-                        words.append(df)
-                print(f"------> {i} minus words, indices: {words}")
+                        words.append(idxx)
+                print(f"------> {i} minus words, indices: {words}, bank's idx: {idx}")
             self._idf_diag = sp.diags(idf, offsets=0,
                                       shape=(n_features, n_features),
                                       format='csr',
